@@ -1,0 +1,227 @@
+---
+title: "HousingPricePrediction"
+author: "Hyun Ko"
+date: '2022-08-21'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=10, fig.height=7.5) 
+rm(list = ls())
+library(tidyverse)
+library(dplyr)
+library(GGally)
+
+# install.packages("ggpubr")
+library(ggpubr)
+```
+
+
+
+```{r cars}
+house <- read.csv('kc_house_data.csv')
+head(house)
+```
+
+## 1. Exploratory Data Analysis
+
+## EDA
+
+- id: Unique ID for each home sold 
+- date: Date of the home sale 
+- price: Price of each home sold
+- bedrooms: Number of bedroom 
+bathrooms: Number of bathrooms, where .5 accounts for a room with a toilet but no shower
+- sqft_living: Square footage of the apartments interior living space 
+- sqft_lot: Square footage of the land space
+- floors: Number of floors
+- waterfront: A dummy variable for whether the apartment was overlooking the waterfront or not 
+- view: An index from 0 to 4 of how good the view of the property was 
+- condition: An index from 1 to 5 on the condition of the apartment,
+- grade: An index from 1 to 13, where 1-3 falls short of building construction and design, 7 has an average level of                  
+      construction and design, and 11-13 have a high quality level of construction and design.
+- sqft_above: The square footage of the interior housing space that is above ground level 
+- sqft_basement: The square footage of the interior housing space that is below ground level 
+- yr_built: The year the house was initially built
+- yr_renovated: The year of the house’s last renovation
+- zipcode: What zipcode area the house is in 
+- lat: Lattitude 
+- long: Longitude 
+- sqft_living15: The square footage of interior housing living space for the nearest 15 neighbors 
+- sqft_lot15: The square footage of the land lots of the nearest 15 neighbors
+
+```{r}
+house <- house %>% select(-id, -date, -lat, -long, -zipcode)
+head(house)
+```
+
+```{r}
+x <- unique(house$yr_renovated)
+hist(house$yr_renovated)
+```
+
+
+```{r}
+is.null(house)
+```
+
+
+```{r}
+col_order <- c("price", "bedrooms", "bathrooms", "floors", "waterfront", "view", "condition", "grade", "yr_built",
+               "yr_renovated", "sqft_living", "sqft_lot", "sqft_living15", "sqft_lot15")
+house <- house[, col_order]
+head(house)
+```
+
+```{r}
+house$bathrooms <- round(house$bathrooms)
+
+house_1 <- house %>% select(price, bedrooms, bathrooms, floors)
+ggpairs(house_1)
+```
+
+```{r}
+p1 <- ggplot(house, aes(x = as.factor(bedrooms), y = price, fill = as.factor(bedrooms))) +
+  geom_boxplot() +
+  labs(x = "Number of Bedrooms", y = "Price", title = "Price by Number of Bedrooms", fill = "Bedrooms")
+
+p2 <- ggplot(house, aes(x = as.factor(bathrooms), y = price, fill = as.factor(bathrooms))) +
+  geom_boxplot() +
+  labs(x = "Number of Bathrooms", y = "Price", title = "Price by Number of Bathrooms", fill = "Bathrooms")
+
+p3 <- ggplot(house, aes(x = as.factor(floors), y = price, fill = as.factor(floors))) +
+  geom_boxplot() +
+  labs(x = "Number of Floors", y = "Price", title = "Price by Number of Floors", fill = "Floors")
+
+ggarrange(p1, p2, p3,
+                    labels = c("A", "B", "C"),
+                    ncol = 1, nrow = 3)
+```
+
+```{r}
+house_2 <- house %>% select(waterfront, view, condition, price)
+ggpairs(house_2)
+```
+
+```{r}
+p4 <- ggplot(house, aes(x = as.factor(waterfront), y = price, fill = as.factor(waterfront))) +
+  geom_boxplot() +
+  labs(x = "Waterfront", y = "Price", title = "Price by with / without waterfront", fill = "Waterfront")
+
+p5 <- ggplot(house, aes(x = as.factor(view), y = price, fill = as.factor(view))) +
+  geom_boxplot() +
+  labs(x = "View", y = "Price", title = "Price by View", fill = "View")
+
+p6 <- ggplot(house, aes(x = as.factor(condition), y = price, fill = as.factor(condition))) +
+  geom_boxplot() +
+  labs(x = "Condition", y = "Price", title = "Price by Condition", fill = "Condition")
+
+ggarrange(p4, p5, p6,
+                    labels = c("A", "B", "C"),
+                    ncol = 1, nrow = 3)
+```
+
+```{r}
+house$yr_built <- case_when(
+  (1900 <= house$yr_built) &  (house$yr_built< 1920) ~ 0,
+  (1920 <= house$yr_built) &  (house$yr_built< 1940) ~ 1,
+  (1940 <= house$yr_built) &  (house$yr_built< 1960) ~ 2,
+  (1960 <= house$yr_built) &  (house$yr_built< 1980) ~ 3,
+  (1980 <= house$yr_built) &  (house$yr_built< 2000) ~ 4,
+  (2000 <= house$yr_built) ~ 5)
+
+house$renovated <- ifelse(house$yr_renovated != 0, 1, 0)
+
+house <- house %>% select(-yr_renovated)
+```
+
+```{r}
+house_3 <- house %>% select(grade, yr_built, renovated, price)
+ggpairs(house_3)
+```
+
+
+
+```{r}
+p7 <- ggplot(house, aes(x = as.factor(grade), y = price, fill = as.factor(grade))) +
+  geom_boxplot() +
+  labs(x = "Grade", y = "Price", title = "Price by Grade", fill = "Grade")
+
+p8 <- ggplot(house, aes(x = as.factor(yr_built), y = price, fill = as.factor(yr_built))) +
+  geom_boxplot() +
+  labs(x = "Year built", y = "Price", title = "Price by Year built", fill = "Year built")
+
+p9 <- ggplot(house, aes(x = as.factor(renovated), y = price, fill = as.factor(renovated))) +
+  geom_boxplot() +
+  labs(x = "Renovated", y = "Price", title = "Price by Renovated", fill = "Renovated")
+
+ggarrange(p7, p8, p9,
+                    labels = c("A", "B", "C"),
+                    ncol = 1, nrow = 3)
+```
+
+
+```{r}
+house_4 <- house %>% select(sqft_living, sqft_lot, price)
+ggpairs(house_4)
+```
+
+```{r}
+p10 <- ggplot(house, aes(x = sqft_living, y = price)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Sqft Living", y = "Price", title = "A Scatterplot of Sqft Living vs Price") 
+
+p11 <- ggplot(house, aes(x = sqft_lot, y = price)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Sqft Lot", y = "Price", title = "A Scatterplot of Sqft Lot vs Price")
+
+
+ggarrange(p10, p11,
+                    labels = c("A", "B"),
+                    ncol = 1, nrow = 2)
+```
+```{r}
+house_5 <- house %>% select(sqft_living15, sqft_lot15, price)
+ggpairs(house_5)
+```
+
+```{r}
+p12 <- ggplot(house, aes(x = sqft_living15, y = price)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Sqft Living15", y = "Price", title = "A Scatterplot of Sqft Living 15 vs Price") 
+
+p13 <- ggplot(house, aes(x = sqft_lot15, y = price)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Sqft Lot15", y = "Price", title = "A Scatterplot of Sqft Lot 15 vs Price")
+
+
+ggarrange(p12, p13,
+                    labels = c("A", "B"),
+                    ncol = 1, nrow = 2)
+```
+
+```{r}
+mydata.cor <- cor(house)
+
+palette = colorRampPalette(c("green", "white", "red")) (20)
+heatmap(x = mydata.cor, col = palette, symm = TRUE, main = "A Heatmap of All Columns")
+```
+
+
+
+
+
+
+```{r}
+set.seed(1) ##for reproducibility to get the same split
+sample<-sample.int(nrow(house), floor(.80*nrow(house)), replace = F)
+train<-house[sample, ] ##training data frame
+test<-house[-sample, ] ##test data frame
+head(train)
+```
+
