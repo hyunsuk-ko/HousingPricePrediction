@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_chunk$set(fig.width=10, fig.height=7.5) 
+#knitr::opts_chunk$set(fig.width=10, fig.height=7.5) 
 rm(list = ls())
 library(tidyverse)
 library(dplyr)
@@ -52,7 +52,7 @@ bathrooms: Number of bathrooms, where .5 accounts for a room with a toilet but n
 - sqft_lot15: The square footage of the land lots of the nearest 15 neighbors
 
 ```{r}
-house <- house %>% select(-id, -date, -lat, -long, -zipcode)
+house <- house %>% dplyr::select(-id, -date, -lat, -long, -zipcode)
 head(house)
 ```
 
@@ -77,7 +77,7 @@ head(house)
 ```{r}
 house$bathrooms <- round(house$bathrooms)
 
-house_1 <- house %>% select(price, bedrooms, bathrooms, floors)
+house_1 <- house %>% dplyr::select(price, bedrooms, bathrooms, floors)
 ggpairs(house_1)
 ```
 
@@ -100,7 +100,7 @@ ggarrange(p1, p2, p3,
 ```
 
 ```{r}
-house_2 <- house %>% select(waterfront, view, condition, price)
+house_2 <- house %>% dplyr::select(waterfront, view, condition, price)
 ggpairs(house_2)
 ```
 
@@ -133,11 +133,11 @@ house$yr_built <- case_when(
 
 house$renovated <- ifelse(house$yr_renovated != 0, 1, 0)
 
-house <- house %>% select(-yr_renovated)
+house <- house %>% dplyr::select(-yr_renovated)
 ```
 
 ```{r}
-house_3 <- house %>% select(grade, yr_built, renovated, price)
+house_3 <- house %>% dplyr::select(grade, yr_built, renovated, price)
 ggpairs(house_3)
 ```
 
@@ -163,7 +163,7 @@ ggarrange(p7, p8, p9,
 
 
 ```{r}
-house_4 <- house %>% select(sqft_living, sqft_lot, price)
+house_4 <- house %>% dplyr::select(sqft_living, sqft_lot, price)
 ggpairs(house_4)
 ```
 
@@ -184,7 +184,7 @@ ggarrange(p10, p11,
                     ncol = 1, nrow = 2)
 ```
 ```{r}
-house_5 <- house %>% select(sqft_living15, sqft_lot15, price)
+house_5 <- house %>% dplyr::select(sqft_living15, sqft_lot15, price)
 ggpairs(house_5)
 ```
 
@@ -214,9 +214,7 @@ heatmap(x = mydata.cor, col = palette, symm = TRUE, main = "A Heatmap of All Col
 
 
 
-
-
-
+## 2. Train / Test Split
 ```{r}
 set.seed(1) ##for reproducibility to get the same split
 sample<-sample.int(nrow(house), floor(.80*nrow(house)), replace = F)
@@ -224,4 +222,326 @@ train<-house[sample, ] ##training data frame
 test<-house[-sample, ] ##test data frame
 head(train)
 ```
+
+
+
+## 3. Modeling
+
+< Stepwise Regression > 
+
+```{r}
+regnull <- lm(price ~ 1, data = train)
+regfull <- lm(price ~ ., data = train)
+step(regnull, scope = list(lower = regnull, upper = regfull), direction = "both")
+```
+
+< Forward Selection > 
+
+```{r}
+step(regnull, scope=list(lower=regnull, upper=regfull), direction="forward")
+```
+
+
+< Backward Elimination > 
+
+```{r}
+step(regfull, scope=list(lower=regnull, upper=regfull), direction="backward")
+```
+
+< Linear Regression >
+
+: Every predictor but sqft_lot was chosen.
+
+=> Every predictor is statistically significant, but what's counterintuitive that the sign of coefficient of bedrooms and sqft_lot15 is negative. This implies the prseence of multicollinearity among few columns. 
+
+```{r}
+result <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
+               sqft_living15 + sqft_lot15 + renovated, data = train)
+summary(result)
+
+test$predict <- round(predict(result, newdata = test) ^ 10)
+
+test_mse_ln <- mean((test$price - test$predict)^2)
+test_mse_ln
+
+summary(result)$r.squared
+summary(result)$adj.r.squared
+
+PRESS <- function(linear.model) { 
+  ## get the residuals from the linear.model. ## extract hat from lm.influence to obtain the leverages 
+  pr <- residuals(linear.model) / (1-lm.influence(linear.model)$hat)
+  ## calculate the PRESS by squaring each term and adding them up 
+  PRESS <- sum(pr ^ 2) 
+  return(PRESS) 
+}
+
+PRESS(result)
+
+##Find SST 
+anova_result<-anova(result) 
+SST<-sum(anova_result$"Sum Sq") ##R2 pred 
+Rsq_pred <- 1-PRESS(result)/SST 
+Rsq_pred
+```
+
+However, according to VIFs, all numbers are below threshold.
+
+```{r}
+library(faraway)
+vif(result)
+```
+
+Let's check residual plot. It seems that linear assumption is violated: constant varaince. Variance gets larger as fitted y gets larger.
+Therefore, we should implement y transformation to address this issue.
+
+```{r}
+yhat <- result$fitted.values
+res <- result$residuals
+Data <- data.frame(train, yhat, res)
+
+ggplot(Data, aes(x=yhat,y=res))+
+  geom_point()+
+  geom_hline(yintercept=0, color="red")+
+  labs(x="Fitted y",
+       y="Residuals",
+       title="Residual Plot")
+
+acf(res)
+qqnorm(res)
+qqline(res, col="red")
+```
+
+
+```{r}
+library(MASS)
+boxcox(result,lambda = seq(-1.,1,0.5))
+```
+
+
+```{r}
+train <- train %>% mutate(price = price ^ 0.1)
+result2 <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
+               sqft_living15 + sqft_lot15 + renovated, data = train)
+summary(result2)
+
+summary(result2)$r.squared
+summary(result2)$adj.r.squared
+
+
+PRESS(result2)
+
+##Find SST 
+anova_result<-anova(result2) 
+SST<-sum(anova_result$"Sum Sq") 
+
+##R2 pred 
+Rsq_pred <- 1-PRESS(result2)/SST 
+Rsq_pred
+```
+
+```{r}
+yhat<-result2$fitted.values 
+res<-result2$residuals
+Data<-data.frame(train,yhat,res)
+
+ggplot(Data, aes(x=yhat,y=res))+
+  geom_point()+
+  geom_hline(yintercept=0, color="red")+
+  labs(x="Fitted y",
+       y="Residuals",
+       title="Residual Plot")
+
+acf(res)
+qqnorm(res)
+qqline(res, col="red")
+
+test$predict <- round(predict(result2, newdata = test) ^ 10)
+test_mse_ln_2 <- mean((test$price - test$predict)^2)
+test_mse_ln_2
+
+tail(test)
+```
+
+```{r}
+a <- data.frame(price = c(10000, 20000, 30000))
+a <- a %>% mutate(boxcox = price^0.1, retransform = boxcox ^ 10)
+a
+```
+
+
+## 4. Identifying Outliers, High Leverage Points, and Influential Points
+
+```{r}
+head(train)
+```
+
+
+```{r}
+boxplot(train$price)
+```
+
+
+< Outlier Detection > 
+: NO Outlier in train data.
+
+```{r}
+n <- nrow(train)
+p <- 13
+cv <- qt(1-0.05,(2*n), n-1-p)
+res <- result2$residuals
+standard.res<- res/summary(result2)$sigma
+student.res <- rstandard(result2)
+ext.student.res <- rstudent(result2)
+
+ext.student.res[abs(ext.student.res)>cv]
+
+res.frame<-data.frame(res,standard.res,
+                      student.res,ext.student.res)
+```
+
+
+```{r}
+par(mfrow=c(1,3))
+plot(result2$fitted.values,standard.res,
+     main="Standardized Residuals",
+     ylim=c(-4.5,4.5))
+plot(result2$fitted.values,student.res,
+     main="Studentized Residuals",
+     ylim=c(-4.5,4.5))
+plot(result2$fitted.values,ext.student.res,
+     main="Externally  Studentized Residuals",
+     ylim=c(-4.5,4.5))
+```
+
+
+
+< Leverage > 
+
+: Total 1604 observations (about 9.3 %) are far from the centroid of the predictor space. These high leverage points are potentially to be influential observations.
+
+```{r}
+# leverage
+lev <- lm.influence(result2)$hat
+
+# identify high leverage points
+x <- lev[lev > 2 * p / n]
+length(x) / n
+```
+
+
+< Detecting Influential Observations >
+
+- An observation is problematic only insofar as it "disagrees" with the observation of the data.
+- After finding the observations that are outlying / high leverage, the next step is to ascertain whether or not these observations are influential.
+- Measures of influence address how much estimates (fitted values, coefficients, etc..) will change if observation was deleted.
+
+```{r}
+# COOK's Distance
+COOKS<-cooks.distance(result2)
+y <- COOKS[COOKS>qf(0.5,p,n-p)]
+length(y)
+```
+
+
+```{r}
+# DFFITS (Difference in Fits)
+DFFITS <- dffits(result2)
+z <- (DFFITS[abs(DFFITS)>2*sqrt(p/n)])
+z
+```
+
+```{r}
+data.frame(z)
+
+indices <- rownames(data.frame(z))
+```
+
+```{r}
+head(train)
+
+rownames(head(train))
+l <- head(train) %>% filter(rownames(head(train)) != 17401)
+l <- l %>% filter()
+#train[rownames(train) == 17401]
+```
+
+
+```{r}
+train2 <- train
+train2$indices <- rownames(train2)
+#train2
+for (i in indices) {
+  train2 <- train2 %>% filter(indices != i)
+}
+
+nrow(train2)
+```
+
+
+```{r}
+length(unique(indices))
+
+nrow(train) - nrow(train2)
+length(indices)
+```
+
+
+
+```{r}
+result3 <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
+               sqft_living15 + sqft_lot15 + renovated, data = train2)
+summary(result3)
+
+test$predict <- round(predict(result2, newdata = test) ^ 10)
+test_mse_ln_3 <- mean((test$price - test$predict)^2)
+test_mse_ln_3
+
+summary(result3)$r.squared
+summary(result3)$adj.r.squared
+
+
+PRESS(result3)
+
+##Find SST 
+anova_result<-anova(result3) 
+SST <- sum(anova_result$"Sum Sq") 
+
+##R2 pred 
+Rsq_pred <- 1-PRESS(result3)/SST 
+Rsq_pred
+
+yhat<-result3$fitted.values 
+res<-result3$residuals
+Data<-data.frame(train2,yhat,res)
+
+ggplot(Data, aes(x=yhat,y=res))+
+  geom_point()+
+  geom_hline(yintercept=0, color="red")+
+  labs(x="Fitted y",
+       y="Residuals",
+       title="Residual Plot")
+
+acf(res)
+qqnorm(res)
+qqline(res, col="red")
+```
+
+```{r}
+head(test)
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
 
