@@ -492,7 +492,7 @@ result3 <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condit
                sqft_living15 + sqft_lot15 + renovated, data = train2)
 summary(result3)
 
-test$predict <- round(predict(result2, newdata = test) ^ 10)
+test$predict <- round(predict(result3, newdata = test) ^ 10)
 test_mse_ln_3 <- mean((test$price - test$predict)^2)
 test_mse_ln_3
 
@@ -527,13 +527,74 @@ qqline(res, col="red")
 ```
 
 ```{r}
-head(test)
+vif(result3)
 ```
+
 
 
 ```{r}
+ggplot(train2, aes(x = as.factor(bedrooms), y = price, fill = as.factor(bedrooms))) +
+  geom_boxplot() +
+  labs(x = "Number of Bedrooms", y = "Price", title = "Price by Number of Bedrooms", fill = "Bedrooms")
 
+ggplot(train2, aes(x = sqft_lot15, y = price)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Sqft Lot15", y = "Price", title = "A Scatterplot of Sqft Lot 15 vs Price")
+
+ggplot(train2, aes(x = log(sqft_lot15), y = price)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Sqft Lot15", y = "Price", title = "A Scatterplot of Sqft Lot 15 vs Price")
 ```
+
+```{r}
+result4 <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
+               sqft_living15 + log(sqft_lot15) + renovated, data = train2)
+summary(result4)
+
+test$predict <- round(predict(result4, newdata = test) ^ 10)
+test_mse_ln_4 <- mean((test$price - test$predict)^2)
+test_mse_ln_4
+
+summary(result4)$r.squared
+summary(result4)$adj.r.squared
+
+
+PRESS(result4)
+
+##Find SST 
+anova_result<-anova(result4) 
+SST <- sum(anova_result$"Sum Sq") 
+
+##R2 pred 
+Rsq_pred <- 1-PRESS(result4)/SST 
+Rsq_pred
+
+yhat<-result4$fitted.values 
+res<-result4$residuals
+Data<-data.frame(train2,yhat,res)
+
+ggplot(Data, aes(x=yhat,y=res))+
+  geom_point()+
+  geom_hline(yintercept=0, color="red")+
+  labs(x="Fitted y",
+       y="Residuals",
+       title="Residual Plot")
+
+acf(res)
+qqnorm(res)
+qqline(res, col="red")
+```
+
+```{r}
+vif(result4)
+```
+
+
+
+
+
 
 
 
