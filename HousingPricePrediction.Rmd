@@ -13,6 +13,8 @@ library(dplyr)
 library(GGally)
 library(ggpubr)
 library(ggmap)
+library(faraway)
+library(MASS)
 ```
 
 
@@ -32,10 +34,15 @@ head(house)
 ```
 
 ```{r}
-#register_google(key = "AIzaSyCtxAzTR-ZGYP0mZ0S2o3Ri9FzBkp_tK44")
-p1 <- get_googlemap("king county") %>% ggmap
-p1 + geom_point(data = house, aes(x = long, y = lat), alpha = 0.03, colour = "red")
+#p1 <- get_googlemap("king county") %>% ggmap
+#p1 + geom_point(data = house, aes(x = long, y = lat), alpha = 0.03, colour = "red")
+#ggsave("map.png")
 ```
+
+```{r}
+knitr::include_graphics("map.png")
+```
+
 
 
 
@@ -88,6 +95,28 @@ col_order <- c("price", "bedrooms", "bathrooms", "floors", "waterfront", "view",
 house <- house[, col_order]
 ```
 
+
+According to our dataset, bathrooms column had some decimal observations, so let's round it up.
+
+As yr_built and renovated are columns are continuous variables, each of them stating the year of a house built / renovated, let's just convert them into categorical variables. For yr_built, we can chunk it up to 5 categories with 20 years of interval, and for renovated, we can note them 1, if renovated, 0 otherwise.
+
+```{r}
+house$bathrooms <- round(house$bathrooms)
+
+house$yr_built <- case_when(
+  (1900 <= house$yr_built) &  (house$yr_built< 1920) ~ 0,
+  (1920 <= house$yr_built) &  (house$yr_built< 1940) ~ 1,
+  (1940 <= house$yr_built) &  (house$yr_built< 1960) ~ 2,
+  (1960 <= house$yr_built) &  (house$yr_built< 1980) ~ 3,
+  (1980 <= house$yr_built) &  (house$yr_built< 2000) ~ 4,
+  (2000 <= house$yr_built) ~ 5)
+
+house$renovated <- ifelse(house$yr_renovated != 0, 1, 0)
+
+house <- house %>% dplyr::select(-yr_renovated)
+```
+
+
 Before diving into EDA, let's split the dataset into train data and test data.
 
 ```{r}
@@ -103,157 +132,137 @@ head(train)
 
 By using ggpairs, we can check overall relationship among columns with the repsonse variable, price, and distribution of each column.
 
-First, for physical attributes of houses (bedrooms, bathrooms, and floors), there were no salient correlation with price.
+First, for physical attributes of houses (bedrooms, bathrooms, and floors), bathrooms had pretty good correlation with price. Slightly lesser for bedrooms and floors.
 
 ```{r}
-house$bathrooms <- round(house$bathrooms)
-
-house_1 <- house %>% dplyr::select(price, bedrooms, bathrooms, floors)
+house_1 <- train %>% dplyr::select(price, bedrooms, bathrooms, floors)
 ggpairs(house_1)
 ```
 
 By looking at boxplot across each colum and category, price did not necessarily proportional to number of bedrooms and number of floors. In short, the most pricy house did not have the largest number of bedrooms or floors. However, in terms of number of bathrooms, price tend to increase as the number of bathroom increases. In our dataset, the most pricy house had the largest number of bedrooms. This is the reason why among these three columns, bathrooms had the highest corrleation with price. 
 
 ```{r}
-p1 <- ggplot(house, aes(x = as.factor(bedrooms), y = price, fill = as.factor(bedrooms))) +
+p1 <- ggplot(train, aes(x = as.factor(bedrooms), y = price, fill = as.factor(bedrooms))) +
   geom_boxplot() +
   labs(x = "Number of Bedrooms", y = "Price", title = "Price by Number of Bedrooms", fill = "Bedrooms")
 
-p2 <- ggplot(house, aes(x = as.factor(bathrooms), y = price, fill = as.factor(bathrooms))) +
+p2 <- ggplot(train, aes(x = as.factor(bathrooms), y = price, fill = as.factor(bathrooms))) +
   geom_boxplot() +
   labs(x = "Number of Bathrooms", y = "Price", title = "Price by Number of Bathrooms", fill = "Bathrooms")
 
-p3 <- ggplot(house, aes(x = as.factor(floors), y = price, fill = as.factor(floors))) +
+p3 <- ggplot(train, aes(x = as.factor(floors), y = price, fill = as.factor(floors))) +
   geom_boxplot() +
   labs(x = "Number of Floors", y = "Price", title = "Price by Number of Floors", fill = "Floors")
 
 ggarrange(p1, p2, p3,
-                    labels = c("A", "B", "C"),
                     ncol = 1, nrow = 3)
 ```
 
 
-Other three columns (view, condition, waterfront), there was a slight correlation between view and price. What's notable is here is that the condition and price of a house had nearly zero correlation. However, we should be careful when analyzing this figure as nearly zero correlation does not necessarily mean they are totally unrelated, and high correlation does not necessarily lead to a causation, A causes B, or the opposite.
+Other three columns (view, condition, waterfront), there was a slight correlation between view and price (0.395). There was also somewhat slight correlation between waterfront and price (0.273). What's notable is here is that the condition and price of a house had nearly zero correlation (0.015). However, we should be careful when analyzing this figure as nearly zero correlation does not necessarily mean they are totally unrelated, and high correlation does not necessarily lead to a causation, A causes B, or the opposite.
 
 ```{r}
-house_2 <- house %>% dplyr::select(waterfront, view, condition, price)
+house_2 <- train %>% dplyr::select(waterfront, view, condition, price)
 ggpairs(house_2)
 ```
 
 According to the boxplot, houses with in the vicinity of waterfront and good view tend to be pricy. However, the condition of a house was not a crucial factor.
 
 ```{r}
-p4 <- ggplot(house, aes(x = as.factor(waterfront), y = price, fill = as.factor(waterfront))) +
+p4 <- ggplot(train, aes(x = as.factor(waterfront), y = price, fill = as.factor(waterfront))) +
   geom_boxplot() +
   labs(x = "Waterfront", y = "Price", title = "Price by with / without waterfront", fill = "Waterfront")
 
-p5 <- ggplot(house, aes(x = as.factor(view), y = price, fill = as.factor(view))) +
+p5 <- ggplot(train, aes(x = as.factor(view), y = price, fill = as.factor(view))) +
   geom_boxplot() +
   labs(x = "View", y = "Price", title = "Price by View", fill = "View")
 
-p6 <- ggplot(house, aes(x = as.factor(condition), y = price, fill = as.factor(condition))) +
+p6 <- ggplot(train, aes(x = as.factor(condition), y = price, fill = as.factor(condition))) +
   geom_boxplot() +
   labs(x = "Condition", y = "Price", title = "Price by Condition", fill = "Condition")
 
-ggarrange(p4, p5, p6,
-                    labels = c("A", "B", "C"),
-                    ncol = 1, nrow = 3)
+ggarrange(p4, p5, p6, ncol = 1, nrow = 3)
 ```
 
 
-As yr_built and renovated are columns are continuous variables, each of them stating the year of a house built / renovated, let's just convert them into categories. For yr_built, we can chunk it up to 5 categories with 20 years of interval, and for renovated, we can note them 1, if renovated, 0 otherwise.
+
+
+
+It turns out that among three columns, grade of a house had a notably high correlation with price. Also, yr_built had pretty notable correlation with price. However, renovated had low correlation with price. 
 
 ```{r}
-house$yr_built <- case_when(
-  (1900 <= house$yr_built) &  (house$yr_built< 1920) ~ 0,
-  (1920 <= house$yr_built) &  (house$yr_built< 1940) ~ 1,
-  (1940 <= house$yr_built) &  (house$yr_built< 1960) ~ 2,
-  (1960 <= house$yr_built) &  (house$yr_built< 1980) ~ 3,
-  (1980 <= house$yr_built) &  (house$yr_built< 2000) ~ 4,
-  (2000 <= house$yr_built) ~ 5)
-
-house$renovated <- ifelse(house$yr_renovated != 0, 1, 0)
-
-house <- house %>% dplyr::select(-yr_renovated)
-```
-
-
-It turns out that among three columns, grade of a house had a high correlation with price. Also, yr_built had pretty notable correlation with price. However, renovated had low correlation with price. 
-
-```{r}
-house_3 <- house %>% dplyr::select(grade, yr_built, renovated, price)
+house_3 <- train %>% dplyr::select(grade, yr_built, renovated, price)
 ggpairs(house_3)
 ```
 
 According to the boxplot, there exists a gradual increase in price along grade categories. Also, more newly-built houses tend to have slightly higher prices. However, there was no big difference in price between renovated house and unrenovated house.
 
 ```{r}
-p7 <- ggplot(house, aes(x = as.factor(grade), y = price, fill = as.factor(grade))) +
+p7 <- ggplot(train, aes(x = as.factor(grade), y = price, fill = as.factor(grade))) +
   geom_boxplot() +
   labs(x = "Grade", y = "Price", title = "Price by Grade", fill = "Grade")
 
-p8 <- ggplot(house, aes(x = as.factor(yr_built), y = price, fill = as.factor(yr_built))) +
+p8 <- ggplot(train, aes(x = as.factor(yr_built), y = price, fill = as.factor(yr_built))) +
   geom_boxplot() +
   labs(x = "Year built", y = "Price", title = "Price by Year built", fill = "Year built")
 
-p9 <- ggplot(house, aes(x = as.factor(renovated), y = price, fill = as.factor(renovated))) +
+p9 <- ggplot(train, aes(x = as.factor(renovated), y = price, fill = as.factor(renovated))) +
   geom_boxplot() +
   labs(x = "Renovated", y = "Price", title = "Price by Renovated", fill = "Renovated")
 
-ggarrange(p7, p8, p9,
-                    labels = c("A", "B", "C"),
-                    ncol = 1, nrow = 3)
+ggarrange(p7, p8, p9, ncol = 1, nrow = 3)
 ```
 
 When we take a look at sqft_lot and sqft_living columns, sqft_living had a pretty high correlation with price. Houses with large square foot of living generally had higher prices. However, sqft_lot was not highly correlated with price.
 
 ```{r}
-house_4 <- house %>% dplyr::select(sqft_living, sqft_lot, price)
+house_4 <- train %>% dplyr::select(sqft_living, sqft_lot, price)
 ggpairs(house_4)
 ```
 
 As such, the slope of sqft_living was pretty steep, while that of sqft_lot was more flat.
 
 ```{r}
-p10 <- ggplot(house, aes(x = sqft_living, y = price)) +
+p10 <- ggplot(train, aes(x = sqft_living, y = price)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   labs(x = "Sqft Living", y = "Price", title = "A Scatterplot of Sqft Living vs Price") 
 
-p11 <- ggplot(house, aes(x = sqft_lot, y = price)) +
+p11 <- ggplot(train, aes(x = sqft_lot, y = price)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   labs(x = "Sqft Lot", y = "Price", title = "A Scatterplot of Sqft Lot vs Price")
 
 
-ggarrange(p10, p11,
-                    labels = c("A", "B"),
-                    ncol = 1, nrow = 2)
+ggarrange(p10, p11, ncol = 1, nrow = 2)
 ```
 
-In line with sqft of neighborhood columns, sqft_living15 also had pretty notable correlation with price, while sqft_lot15 not.
+In line with sqft columns, sqft_living15 also had pretty notable correlation with price, while sqft_lot15 not.
 
 ```{r}
-house_5 <- house %>% dplyr::select(sqft_living15, sqft_lot15, price)
+house_5 <- train %>% dplyr::select(sqft_living15, sqft_lot15, price)
 ggpairs(house_5)
 ```
 
+Likely, sqft_living15 column had slightly steeper slope than that of sqft_lot15.
+
 ```{r}
-p12 <- ggplot(house, aes(x = sqft_living15, y = price)) +
+p12 <- ggplot(train, aes(x = sqft_living15, y = price)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   labs(x = "Sqft Living15", y = "Price", title = "A Scatterplot of Sqft Living 15 vs Price") 
 
-p13 <- ggplot(house, aes(x = sqft_lot15, y = price)) +
+p13 <- ggplot(train, aes(x = sqft_lot15, y = price)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   labs(x = "Sqft Lot15", y = "Price", title = "A Scatterplot of Sqft Lot 15 vs Price")
 
 
-ggarrange(p12, p13,
-                    labels = c("A", "B"),
-                    ncol = 1, nrow = 2)
+ggarrange(p12, p13, ncol = 1, nrow = 2)
 ```
+
+
+On top of direct correlation with price, through heatmap, we can check general corrleation among each column. The more red-shaded the square is, the higher correlated two predictors are. On bottom right, predictors (bedrooms, bathrooms, sqft_living, grade, and sqft_living) seem to be pretty correlated with each other.
 
 ```{r}
 mydata.cor <- cor(house)
@@ -266,6 +275,8 @@ heatmap(x = mydata.cor, col = palette, symm = TRUE, main = "A Heatmap of All Col
 
 
 ## 3. Modeling
+
+As there are a large number of predictors in our dataset, we can first filter useful predictors by using automated search procedures. We can automate the process of finding useful / useless columns. Let's implement stepwise regression, forward selection, and backward elimination to choose predictors.
 
 < Stepwise Regression > 
 
@@ -288,25 +299,21 @@ step(regnull, scope=list(lower=regnull, upper=regfull), direction="forward")
 step(regfull, scope=list(lower=regnull, upper=regfull), direction="backward")
 ```
 
+As a result, every predictor except sqft_lot was chosen. We can use rest of the predictors in building our model.
+
+
+
 < Linear Regression >
 
-: Every predictor but sqft_lot was chosen.
+Using lm function, let's come up with our first model. According to the summary, every predictor is statistically significant, but what's counterintuitive that the sign of coefficient of bedrooms and sqft_lot15 is negative. 
 
-=> Every predictor is statistically significant, but what's counterintuitive that the sign of coefficient of bedrooms and sqft_lot15 is negative. This implies the prseence of multicollinearity among few columns. 
+- Mean Squared Error: 52482587023
+- R-Sqaured: 0.6547201
+- Adjusted R-Squared: 0.6544803
+- PRESS: 7.947446e+14
+- R-square predict: 0.6526771
 
 ```{r}
-result <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
-               sqft_living15 + sqft_lot15 + renovated, data = train)
-summary(result)
-
-test$predict <- round(predict(result, newdata = test) ^ 10)
-
-test_mse_ln <- mean((test$price - test$predict)^2)
-test_mse_ln
-
-summary(result)$r.squared
-summary(result)$adj.r.squared
-
 PRESS <- function(linear.model) { 
   ## get the residuals from the linear.model. ## extract hat from lm.influence to obtain the leverages 
   pr <- residuals(linear.model) / (1-lm.influence(linear.model)$hat)
@@ -314,6 +321,21 @@ PRESS <- function(linear.model) {
   PRESS <- sum(pr ^ 2) 
   return(PRESS) 
 }
+```
+
+
+```{r}
+result <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
+               sqft_living15 + sqft_lot15 + renovated, data = train)
+summary(result)
+
+test$predict <- round(predict(result, newdata = test))
+
+test_mse_ln <- mean((test$price - test$predict)^2)
+test_mse_ln
+
+summary(result)$r.squared
+summary(result)$adj.r.squared
 
 PRESS(result)
 
@@ -324,15 +346,13 @@ Rsq_pred <- 1-PRESS(result)/SST
 Rsq_pred
 ```
 
-However, according to VIFs, all numbers are below threshold.
+According to VIFs, as all numbers are below threshold (10), there is no sign of multicollinearity in our model. 
 
 ```{r}
-library(faraway)
 vif(result)
 ```
 
-Let's check residual plot. It seems that linear assumption is violated: constant varaince. Variance gets larger as fitted y gets larger.
-Therefore, we should implement y transformation to address this issue.
+Let's check residual plot to check regression assumption. It seems that the second assumption, constanct variance is violated according to the first plot. To be specific, variance gets larger as fitted y gets larger. Therefore, we should implement y transformation to address this issue.
 
 ```{r}
 yhat <- result$fitted.values
@@ -352,17 +372,34 @@ qqline(res, col="red")
 ```
 
 
+Box Cox method is an analytical way to decide how to transform the response variable to achieve constant variance. According to the plot, the optimal $\lambda$ is 0.1.
+
 ```{r}
-library(MASS)
 boxcox(result,lambda = seq(-1.,1,0.5))
 ```
 
+Therefore, let's transform our $y^{*} = y^0.1$.
 
 ```{r}
 train <- train %>% mutate(price = price ^ 0.1)
+```
+
+After y-transformation, our model has now better results.
+
+- Mean Squared Error: 43928749327
+- R-Sqaured: 0.658523
+- Adjusted R-Squared: 0.6582858
+- PRESS: 228.5181
+- R-square predict: 0.6578727
+
+```{r}
 result2 <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
                sqft_living15 + sqft_lot15 + renovated, data = train)
 summary(result2)
+
+test$predict <- round(predict(result2, newdata = test) ^ 10)
+test_mse_ln_2 <- mean((test$price - test$predict)^2)
+test_mse_ln_2
 
 summary(result2)$r.squared
 summary(result2)$adj.r.squared
@@ -378,6 +415,8 @@ SST<-sum(anova_result$"Sum Sq")
 Rsq_pred <- 1-PRESS(result2)/SST 
 Rsq_pred
 ```
+
+According to residual plot, acf plot, and normal probability plot, all of the regression assumptions are satisified.
 
 ```{r}
 yhat<-result2$fitted.values 
@@ -395,34 +434,18 @@ acf(res)
 qqnorm(res)
 qqline(res, col="red")
 
-test$predict <- round(predict(result2, newdata = test) ^ 10)
-test_mse_ln_2 <- mean((test$price - test$predict)^2)
-test_mse_ln_2
-
 tail(test)
 ```
 
-```{r}
-a <- data.frame(price = c(10000, 20000, 30000))
-a <- a %>% mutate(boxcox = price^0.1, retransform = boxcox ^ 10)
-a
-```
 
 
 ## 4. Identifying Outliers, High Leverage Points, and Influential Points
 
-```{r}
-head(train)
-```
-
-
-```{r}
-boxplot(train$price)
-```
-
+In order to increase the performance our model, let's identify outliers, high leverage points, and influential points in the dataset.
 
 < Outlier Detection > 
-: NO Outlier in train data.
+
+: By checking standardized residual, studentized reisdual, and externally studentized reisudals, we can identify the presence of outliers in our dataset. As a result, there is no outlier in our dataset.
 
 ```{r}
 n <- nrow(train)
@@ -438,7 +461,6 @@ ext.student.res[abs(ext.student.res)>cv]
 res.frame<-data.frame(res,standard.res,
                       student.res,ext.student.res)
 ```
-
 
 ```{r}
 par(mfrow=c(1,3))
@@ -457,7 +479,7 @@ plot(result2$fitted.values,ext.student.res,
 
 < Leverage > 
 
-: Total 1604 observations (about 9.3 %) are far from the centroid of the predictor space. These high leverage points are potentially to be influential observations.
+By checking leverage, we can identify how many observations are far away from average of predictors and response. According to the result, total 1604 observations (about 9.3 %) are far from the centroid of the predictor space. These high leverage points are potentially to be influential observations.
 
 ```{r}
 # leverage
@@ -471,9 +493,9 @@ length(x) / n
 
 < Detecting Influential Observations >
 
-- An observation is problematic only insofar as it "disagrees" with the observation of the data.
-- After finding the observations that are outlying / high leverage, the next step is to ascertain whether or not these observations are influential.
-- Measures of influence address how much estimates (fitted values, coefficients, etc..) will change if observation was deleted.
+After finding the observations that are outlying / high leverage, the next step is to ascertain whether or not these observations are influential. Measures of influence address how much estimates (fitted values, coefficients, etc..) will change if observation was deleted. By looking at Cook's Distance, DFFITS (Difference in Fits), DFBETAS (Differenece in Betas), we can detect influetial observations. 
+
+Result from Cook's distance does not show sign of infleutial observations.
 
 ```{r}
 # COOK's Distance
@@ -483,6 +505,8 @@ length(y)
 ```
 
 
+However, the result from DFFITS shows the list indices of influential points.
+
 ```{r}
 # DFFITS (Difference in Fits)
 DFFITS <- dffits(result2)
@@ -490,26 +514,14 @@ z <- (DFFITS[abs(DFFITS)>2*sqrt(p/n)])
 z
 ```
 
-```{r}
-data.frame(z)
+As we now know influential points, let's remove them from our train data.
 
+```{r}
 indices <- rownames(data.frame(z))
-```
 
-```{r}
-head(train)
-
-rownames(head(train))
-l <- head(train) %>% filter(rownames(head(train)) != 17401)
-l <- l %>% filter()
-#train[rownames(train) == 17401]
-```
-
-
-```{r}
 train2 <- train
 train2$indices <- rownames(train2)
-#train2
+
 for (i in indices) {
   train2 <- train2 %>% filter(indices != i)
 }
@@ -518,14 +530,15 @@ nrow(train2)
 ```
 
 
-```{r}
-length(unique(indices))
+After deleting outliers, high leverage points, and influential points, the performance of our model has increased. 
 
-nrow(train) - nrow(train2)
-length(indices)
-```
+- Mean Squared Error: 44104007128
+- R-Sqaured: 0.6727283
+- Adjusted R-Squared: 0.6724881
+- PRESS: 174.7996
+- R-square predict: 0.6723251
 
-
+Also, our new model meets all regeression assumptions.
 
 ```{r}
 result3 <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
@@ -570,13 +583,9 @@ qqline(res, col="red")
 vif(result3)
 ```
 
-
+In order to deal with negative coefficient in sqft_lot15 predictor, let's implement log transformation on sqft_lot15.
 
 ```{r}
-ggplot(train2, aes(x = as.factor(bedrooms), y = price, fill = as.factor(bedrooms))) +
-  geom_boxplot() +
-  labs(x = "Number of Bedrooms", y = "Price", title = "Price by Number of Bedrooms", fill = "Bedrooms")
-
 ggplot(train2, aes(x = sqft_lot15, y = price)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
@@ -587,6 +596,14 @@ ggplot(train2, aes(x = log(sqft_lot15), y = price)) +
   geom_smooth(method = "lm", se = FALSE) +
   labs(x = "Sqft Lot15", y = "Price", title = "A Scatterplot of Sqft Lot 15 vs Price")
 ```
+
+Although log transformation sqft_lot15 predictor, the coefficient is still negative. However, the general performance of our model has slightly increased than the previous one.
+
+- Mean Squared Error: 43387370710
+- R-Sqaured: 0.6815662
+- Adjusted R-Squared: 0.6813325
+- PRESS: 170.087
+- R-square predict: 0.6811591
 
 ```{r}
 result4 <- lm(price ~ bedrooms + bathrooms + floors + waterfront + view + condition + grade + yr_built + sqft_living + 
@@ -633,27 +650,29 @@ vif(result4)
 
 
 
-
-
-
-
-```{r}
-zipcode <- unique(house$zipcode)
-zipcode
-```
-
-```{r}
-# https://www.niche.com/places-to-live/search/best-zip-codes-to-live/c/king-county-wa/
-# Overall Grade > A-
-good_zip <- c(98004, 98005, 98052, 98121, 98007, 98109, 98033, 98122, 98029, 98006, 98103, 98102, 98074, 98101, 98040, 98115, 98112, 98107, 98119, 98105, 98075, 98008, 98116, 98053, 98034, 98039, 98144, 98199, 98117, 98104, 98028, 98027, 98011, 98177, 98125, 98065, 98072, 98077, 98126, 98155, 98136, 98059, 98133, 98188, 98106)
-# , 98024, 98019, 98038, 98055, 98010, 98108, 98056, 98045, 98058, 98092, 98057, 98031, 98178, 98166, 98003, 98146, 98032, 98042, 98002, 98188, 98001
-```
-
+In order to boost the predictive performance of our model let's take fully advantage of zipcode predictor that we dropped at the beginning. In our dataset, we have total 70 distinct zipcodes of King County.  
 
 ```{r}
 house2 <- read.csv('kc_house_data.csv')
 house2 <- house2 %>% dplyr::select(-id, -date, -lat, -long)
 
+zipcode <- unique(house2$zipcode)
+zipcode
+```
+
+From www.niche.com, we can derive zipcodes of King County with overall grade above A-. Then, create new categorical variable displaying 1, if zipcode is in the list, 0 otherwise. The distribution of two categories are pretty well-balanced by looking at the histogram below.
+
+```{r}
+# https://www.niche.com/places-to-live/search/best-zip-codes-to-live/c/king-county-wa/
+# Overall Grade > A-
+good_zip <- c(98004, 98005, 98052, 98121, 98007, 98109, 98033, 98122, 98029, 98006, 98103, 98102, 98074, 98101, 98040, 98115, 98112, 98107, 98119, 98105, 98075, 98008, 98116, 98053, 98034, 98039, 98144, 98199, 98117, 98104, 98028, 98027, 98011, 98177, 98125, 98065, 98072, 98077, 98126, 98155, 98136, 98059, 98133, 98188, 98106)
+
+house2$good_neigh <- ifelse(house2$zipcode %in% good_zip, 1, 0)
+
+hist(house2$good_neigh)
+```
+
+```{r}
 house2$yr_built <- case_when(
   (1900 <= house2$yr_built) &  (house2$yr_built< 1920) ~ 0,
   (1920 <= house2$yr_built) &  (house2$yr_built< 1940) ~ 1,
@@ -664,10 +683,7 @@ house2$yr_built <- case_when(
 
 house2$renovated <- ifelse(house2$yr_renovated != 0, 1, 0)
 
-house2$good_neigh <- ifelse(house2$zipcode %in% good_zip, 1, 0)
-
 house2 <- house2 %>% dplyr::select(-zipcode)
-
 
 house2 <- house2 %>% dplyr::select(-yr_renovated)
 head(house2)
@@ -681,12 +697,7 @@ test2 <- house2[-sample, ] ##test data frame
 head(train2)
 ```
 
-```{r}
-ggplot(train2, aes(x= as.factor(good_neigh), y = price, fill = as.factor(good_neigh))) +
-  geom_boxplot() +
-  labs(x = "Good Neighborhood", y = "Price", title = "Price by Good Neighborhood", fill = "")
-```
-
+Like we used to do in the beginning, let's take on automated search procedure to filter out predictors.
 
 ```{r}
 regnull <- lm(price ~ 1, data = train2)
@@ -703,6 +714,7 @@ step(regnull, scope=list(lower=regnull, upper=regfull), direction="forward")
 step(regfull, scope=list(lower=regnull, upper=regfull), direction="backward")
 ```
 
+Total 14 colmns, were used in our model. 
 
 ```{r}
 result5 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + 
@@ -726,6 +738,8 @@ Rsq_pred <- 1-PRESS(result5)/SST
 Rsq_pred
 ```
 
+However, when we take a look at the residual plot, constant variance is not satisfied.
+
 ```{r}
 yhat<-result5$fitted.values 
 res<-result5$residuals
@@ -743,16 +757,31 @@ qqnorm(res)
 qqline(res, col="red")
 ```
 
+To find optimal $\lambda$ for y-transformation, we look at Box Cox plot, and $\lambda = 0$, so let's do log transformation on price.
+
 ```{r}
 boxcox(result5,lambda = seq(-1.,1,0.5))
 ```
 
+Surprisingly, all of our result stats has increased significantly by implementing good neighbors column and log transformation on price.
+
+- Mean Squared Error: 35394126054
+- R-Sqaured: 0.781717
+- Adjusted R-Squared: 0.7815401
+- PRESS: 1047.15
+- R-square predict: 0.7811394
+
 ```{r}
 train2 <- train2 %>% mutate(price = log(price))
+
 result6 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + 
     waterfront + view + condition + grade + sqft_above + yr_built + 
     sqft_living15 + sqft_lot15 + renovated + good_neigh, data = train2)
 summary(result6)
+
+test2$predict <- round(exp(predict(result6, newdata = test2)))
+test_mse_ln_6 <- mean((test2$price - test2$predict)^2)
+test_mse_ln_6
 
 summary(result6)$r.squared
 summary(result6)$adj.r.squared
@@ -784,11 +813,26 @@ qqnorm(res)
 qqline(res, col="red")
 ```
 
+However, as the p-value for sqft_lot15 predictor is high, let's drop that and re-model it. As our model all satisfied regression assumption, and pretty good result, this is our final model.
+
+- Mean Squared Error: 438826877065
+- R-Sqaured: 0.7817165
+- Adjusted R-Squared: 0.7815522
+- PRESS: 1046.815
+- R-square predict: 0.7812095
+
+$y^* = 1.108e+01 -1.110e-02x_{bedrooms}+ 7.208e-02x_{bathrooms} + 1.404e-04x_{sqft_living} + 5.351e-07x_{sqft_lot} + 4.494e-01x_{waterfront} + 5.622e-02x_{view} + 4.952e-02x_{condition} + 1.416e-01x_{grade} + 2.287e-05x_{sqft_above} -5.802e-02x_{yr_built} +  6.825e-05x_{sqft_living15} + 6.885e-02x_{renovated} + 4.428e-01x_{good_neigh}$, where $y^* = log(y)$
+
 ```{r}
 result7 <- lm(price ~ bedrooms + bathrooms + sqft_living + sqft_lot + 
     waterfront + view + condition + grade + sqft_above + yr_built + 
     sqft_living15 + renovated + good_neigh, data = train2)
 summary(result7)
+
+test2$predict <- round(exp(predict(result7, newdata = test2)))
+head(test2)
+test_mse_ln_7 <- mean((test2$price - test2$predict)^2)
+test_mse_ln_7
 
 summary(result7)$r.squared
 summary(result7)$adj.r.squared
@@ -818,16 +862,6 @@ ggplot(Data, aes(x=yhat,y=res))+
 acf(res)
 qqnorm(res)
 qqline(res, col="red")
-```
-
-```{r}
-test2$predict <- round(exp(predict(result7, newdata = test2)))
-head(test2)
-test_mse_ln_7 <- mean((test2$price - test2$predict)^2)
-test_mse_ln_7
-```
-
-
 ```
 
 
